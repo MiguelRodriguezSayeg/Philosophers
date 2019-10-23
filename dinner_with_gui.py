@@ -20,38 +20,68 @@ class Philosopher(object):
         self.name = name
         self.avatar = ImageTk.PhotoImage(Image.open("{}.jpg".format(self.name.lower())))
         self.panel = Label(root, image=self.avatar)
-        self.acquired = False
+        self.acquired_left = False
+        self.acquired_right = False
         self.left_fork = None
         self.right_fork = None
 
-    def acquire(self):
+    def acquire_left(self):
         self.panel.configure(image=self.avatar)
         self.panel.image = self.avatar
-        if not self.acquired:
-            self.left_fork.mutex.acquire()
-            self.right_fork.mutex.acquire()
-            self.left_fork.panel.configure(image=self.left_fork.AVATARS['used'])
-            self.left_fork.panel.image = self.left_fork.AVATARS['used']
-            self.right_fork.panel.configure(image=self.right_fork.AVATARS['used'])
-            self.right_fork.panel.image = self.right_fork.AVATARS['used']
-            self.acquired = True
+        if not self.acquired_left:
+            if not self.left_fork.owner:
+                self.left_fork.mutex.acquire()
+                self.left_fork.owner = self
+                self.left_fork.panel.configure(image=self.left_fork.AVATARS['used'])
+                self.left_fork.panel.image = self.left_fork.AVATARS['used']
+                self.acquired_left = True
+            else:
+                print("Resource is being used... {} couldn't acquire the left fork.".format(self.name))
+
+    def acquire_right(self):
+        self.panel.configure(image=self.avatar)
+        self.panel.image = self.avatar
+        if not self.acquired_right:
+            if not self.right_fork.owner:
+                self.right_fork.mutex.acquire()
+                self.right_fork.owner = self
+                self.right_fork.panel.configure(image=self.right_fork.AVATARS['used'])
+                self.right_fork.panel.image = self.right_fork.AVATARS['used']
+                self.acquired_right = True
+            else:
+                print("Resource is being used... {} couldn't acquire the left fork.".format(self.name))
 
     def release(self):
         self.panel.configure(image=self.avatar)
         self.panel.image = self.avatar
-        if self.acquired:
-            self.left_fork.mutex.release()
-            self.right_fork.mutex.release()
-            self.left_fork.panel.configure(image=self.left_fork.AVATARS['available'])
-            self.left_fork.panel.image = self.left_fork.AVATARS['available']
-            self.right_fork.panel.configure(image=self.right_fork.AVATARS['available'])
-            self.right_fork.panel.image = self.right_fork.AVATARS['available']
-            self.acquired = False
-        else:
+        bool_has = False
+        if self.acquired_right:
+            bool_has = True
+            self._release_right()
+        if self.acquired_left:
+            bool_has = True
+            self._release_left()
+        if not bool_has:
             print("{} couldn't release the forks since it didn't have them.\n".format(self.name))
 
+    def _release_left(self):
+        self.left_fork.mutex.release()
+        self.left_fork.owner = None
+        self.left_fork.owner = None
+        self.left_fork.panel.configure(image=self.left_fork.AVATARS['available'])
+        self.left_fork.panel.image = self.left_fork.AVATARS['available']
+        self.acquired_left = False
+
+    def _release_right(self):
+        self.right_fork.mutex.release()
+        self.right_fork.owner = None
+        self.right_fork.owner = None
+        self.right_fork.panel.configure(image=self.right_fork.AVATARS['available'])
+        self.right_fork.panel.image = self.right_fork.AVATARS['available']
+        self.acquired_right = False
+
     def eat(self):
-        if self.left_fork.mutex.locked() and self.right_fork.mutex.locked():
+        if self.left_fork.owner == self and self.right_fork.owner == self:
             self.panel.configure(image=self.STATE_AVATARS['eating'])
             self.panel.image = self.STATE_AVATARS['eating']
             print("{} is eating... Yummy!\n".format(self.name))
@@ -84,6 +114,7 @@ class Fork(object):
         self.fork_id = fork_id
         self.avatar = self.AVATARS['available']
         self.panel = Label(root, image=self.avatar)
+        self.owner = None
         self.mutex = Lock()
 
     def __str__(self):
@@ -103,14 +134,16 @@ class Table(object):
             current_fork = Fork(j)
             self.forks.append(Fork(j))
             if j == (self.MAX_NUMBER_PHILOSOPHERS - 1):
-                current_fork.panel.pack(side="left", fill="both", expand="yes")
-                self.philosophers[j].panel.pack(side="left", fill="both", expand="yes")
                 self.philosophers[0].set_left_fork(current_fork)
             else:
-                current_fork.panel.pack(side="left", fill="both", expand="yes")
-                self.philosophers[j].panel.pack(side="left", fill="both", expand="yes")
                 self.philosophers[j+1].set_left_fork(current_fork)
             self.philosophers[j].set_right_fork(current_fork)
+        self.init_gui()
+
+    def init_gui(self):
+        for count, philosopher in enumerate(self.philosophers):
+            philosopher.left_fork.panel.pack(side="left", fill="both", expand="yes")
+            philosopher.panel.pack(side="left", fill="both", expand="yes")
 
     def run(self):
         self.threads = [Thread(target=self.eat_dinner, args=(philosopher, ))for philosopher in self.philosophers]
@@ -123,11 +156,15 @@ class Table(object):
 
     @staticmethod
     def eat_dinner(philosopher_ins):
-        list_func = [philosopher_ins.eat, philosopher_ins.acquire, philosopher_ins.release, philosopher_ins.think]
-        for i in range(10):
+        list_func = [philosopher_ins.eat, philosopher_ins.acquire_left, philosopher_ins.acquire_right,
+                     philosopher_ins.release, philosopher_ins.think]
+        loops = 10
+        for i in range(loops):
             function = list_func[randrange(4)]
             print("{}.- {} decided to {}.\n".format(i+1, philosopher_ins.name, function.__name__))
             function()
+            if i != (loops -1):
+                sleep(2)
         philosopher_ins.release()
         philosopher_ins.panel.configure(image=philosopher_ins.STATE_AVATARS['out'])
         philosopher_ins.panel.image = philosopher_ins.STATE_AVATARS['out']
